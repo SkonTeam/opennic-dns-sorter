@@ -40,7 +40,11 @@ def progress(count, total, status=''):
 	percents = round(100.0 * count / float(total), 1)
 	bar = '#' * filled_len + '-' * (bar_len - filled_len)
 
-	sys.stdout.write('[%s] %s%s %s\r' % (bar, percents, '%', status))
+	CURSOR_UP = '\033[F'
+	ERASE_LINE = '\033[K'
+	print(ERASE_LINE + CURSOR_UP)
+
+	sys.stdout.write('\r[%s] %s%s ==> %s\r' % (bar, percents, '%', status))
 	sys.stdout.flush() # As suggested by Rom Ruben (see: http://stackoverflow.com/questions/3173320/text-progress-bar-in-the-console/27871113#comment50529068_27871113)
 
 class DnsServer():
@@ -77,7 +81,6 @@ class DnsServerPool():
 	def ping(self,tries):
 		i = 1
 		for dns in self.pool:
-			#print("[" + str(i) +"/" + str(len(self.pool)) +"] " +"Pinging : " + dns.ip)
 			progress(i,len(self.pool),dns.ip)
 			dns.ping(tries)
 			i = i+1
@@ -89,6 +92,7 @@ class DnsServerPool():
 
 	def view(self,n=999):
 		n = n if n < len(self.pool) else len(self.pool)
+		print('\n')
 		for dns in self.pool[:n]:
 			print(dns)
 
