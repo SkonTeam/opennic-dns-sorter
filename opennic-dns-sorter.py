@@ -2,6 +2,7 @@ import urllib.request
 import datetime
 import os
 import sys
+import ctypes
 import subprocess, platform
 import re
 import argparse
@@ -120,11 +121,50 @@ class DnsServerPool():
 		if len(self.pool) == 0:
 			self.pool = pool_backup
 	
-	def as_ip_list(self):
-		return [dns.ip for dns in self.pool]
+	def as_ip_list(self,n=999):
+		n = n if n < len(self.pool) else len(self.pool)
+		return [dns.ip for dns in self.pool[:n]]
 
+def isAdmin():
+	try:
+		is_admin = os.getuid() == 0
+	except AttributeError:
+		is_admin = ctypes.windll.shell32.IsUserAnAdmin()
 
+	return is_admin
 
+def get_interface_name():
+	if platform.system().lower() == "windows":
+		get_cmd = 'netsh interface ipv4 show interface'
+		getOutput = subprocess.check_output(get_cmd,shell=False)
+		getOutput = getOutput.decode("utf-8")
+		if "Ethernet" in getOutput:
+			return "Ethernet"
+		if "Wi-Fi" in getOutput:
+			return "Wi-Fi"
+
+def set_dns_servers(servers):
+	if len(servers) < 1 :
+		return False
+	if platform.system().lower() == "windows":
+		interface_name = get_interface_name()
+		set_primary_cmd = 'netsh interface ipv4 set dnsservers ' + '"' + interface_name + '"' + ' static ' + str(servers[0]) + ' primary'
+		if len(servers) >= 2 :
+			set_secondary_cmd = 'netsh interface ipv4 add dnsserver ' + '"' + interface_name + '"' + ' ' + str(servers[1]) + ' index=2'
+
+		try:
+			primaryOutput = subprocess.check_output(set_primary_cmd,shell=False)	
+		except Exception as e:
+			return False
+		try:
+			secondaryOutput = subprocess.check_output(set_secondary_cmd,shell=False)
+		except Exception as e:
+			return False
+		
+		return True
+	else:
+		print("Auto set DNS currently supported on Windows only.")
+		return False
 		
 def get_opennic_dns_report():
 	r = urllib.request.urlopen("http://report.opennicproject.org/files/t2report.txt").read()
@@ -174,11 +214,13 @@ if __name__ == '__main__':
 	parser.add_argument('-n',type=int,default=4,help='number of pings to send per server (default: 4)')
 	parser.add_argument('-t',type=int,default=10,help='number of servers to show (default: 10)')
 	parser.add_argument('-f',action='store_true',help='force list refetch and bypasses saved results')
+	parser.add_argument('-s',action='store_true',help='set the top 2 dns servers for the primary interface (needs admin rights)')
 	args = parser.parse_args()
 
 	tries = args.n
 	force = args.f
 	top = args.t
+	change_dns = args.s
 
 	today = datetime.datetime.now()
 	saveFilename = "dns-" + today.strftime("%Y%m%d") + ".txt"
@@ -187,14 +229,20 @@ if __name__ == '__main__':
 	if os.path.isfile(saveFilename) and not force:
 		dns_pool.load(saveFilename)
 		dns_pool.sort()
-		dns_pool.cleanup_pool()
-		dns_pool.view(top)
 	else:
 		dns_report,filename = get_dns_report(force)
 		parse_report(filename,dns_pool)
 		dns_pool.ping(tries)
 		dns_pool.sort()
 		dns_pool.save(saveFilename)
-		dns_pool.cleanup_pool()
-		dns_pool.view(top)
+	dns_pool.cleanup_pool()
+	dns_pool.view(top)
+	if change_dns:
+		if isAdmin():
+			servers = dns_pool.as_ip_list(2)
+			if set_dns_servers(servers):
+				print("Primary DNS : " + servers[0])
+				print("Secondary DNS : " + servers[1])
+		else:
+			print("Could not change DNS servers: Run script as admin")
 
